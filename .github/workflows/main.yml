@@ -27,7 +27,7 @@ jobs:
           # OpenAI API key for GPT.
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           # OpenAI API model.
-          OPENAI_API_MODEL: "gpt-5-nano-2025-08-07" # optional, default is gpt-4
+          OPENAI_API_MODEL: "gpt-4" # optional, default is gpt-4
           # Glob patterns to exclude files from the diff analysis
           exclude: "**/*.json, **/*.md"
           
