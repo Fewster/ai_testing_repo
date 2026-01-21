@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run AI code reviewer
-        uses: Fewster/AI-Code-Review-Tool@v1.0.2
+        uses: Fewster/AI-Code-Review-Tool@main
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
