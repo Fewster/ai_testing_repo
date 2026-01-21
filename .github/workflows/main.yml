@@ -19,7 +19,7 @@ jobs:
         
       - name: AI Code Review Action
         # uses: villesau/ai-codereviewer@8dff11715837750379472ead710753262e2ca65f
-        uses: villesau/ai-codereviewer@v2.7.0
+        uses: Fewster/ai-codereviewer-forked@main
         with:
           # GitHub token to interact with the repository.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
