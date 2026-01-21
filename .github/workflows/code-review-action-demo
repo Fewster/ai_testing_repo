@@ -13,10 +13,17 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@v3
 
-      - name: AI Code Reviewer
-        uses: Fewster/ai-code-reviewer@main
+      - name: AI Code Review Action
+          # You may pin to the exact commit or the version.
+          # uses: villesau/ai-codereviewer@8dff11715837750379472ead710753262e2ca65f
+        uses: villesau/ai-codereviewer@v2.7.0
         with:
+            # GitHub token to interact with the repository.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_API_MODEL: "gpt-4" # Optional: defaults to "gpt-4"
-          exclude: "**/*.json, **/*.md" # Optional: exclude patterns separated by commas
+            # OpenAI API key for GPT.
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }} 
+            # OpenAI API model.
+          OPENAI_API_MODEL: gpt-5-mini-2025-08-07
+            # Glob patterns to exclude files from the diff analysis
+          exclude: "**/*.json, **/*.md"
+          
