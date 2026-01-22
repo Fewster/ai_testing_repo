@@ -1,3 +1,4 @@
+# BY DAN FEWSTER
 import bpy
 import math
 
