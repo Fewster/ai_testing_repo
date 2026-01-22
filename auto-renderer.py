@@ -1,44 +1,78 @@
-# BY DAN FEWSTER
 import bpy
 import math
+import os
 
 # ========================================================
 # PROPERTY GROUP
 # --------------------------------------------------------
-# Stores user-configurable settings on the Scene so they
-# persist between runs and are accessible from the UI.
+# Stores all user-adjustable settings for rendering
+# and post-processing.
 # ========================================================
 class RenderProps(bpy.types.PropertyGroup):
     base_name: bpy.props.StringProperty(
         name="Base Name",
-        description="Base filename for rendered images",
         default="my_render"
     )
     step_angle: bpy.props.IntProperty(
         name="Rotation Step",
-        description="Rotation step in degrees",
         default=45,
         min=1,
         max=360
     )
     output_path: bpy.props.StringProperty(
-        name="Output Path",
-        description="Output directory (// = blend file location)",
-        default="//",
+        name="Render Output Path",
+        default="//renders/",
+        subtype="DIR_PATH"
+    )
+    post_output_path: bpy.props.StringProperty(
+        name="Post Output Path",
+        description="Folder for composited images",
+        default="//post/",
         subtype="DIR_PATH"
     )
 
 # ========================================================
-# OPERATOR: RENDER ROTATIONS PER KEYFRAME
+# COMPOSITOR SETUP
 # --------------------------------------------------------
-# For the active object:
-# - Iterates over every animation keyframe
-# - Rotates the object in fixed angular steps (e.g. 45°)
-# - Renders an image for each rotation at each keyframe
+# Creates (or reuses) a compositor graph:
+# Render Layers → Pixelate → Composite
+# Pixel size is fixed at intensity 5.
+# ========================================================
+def setup_compositor(pixel_size=5):
+    scene = bpy.context.scene
+    scene.use_nodes = True
+    tree = scene.node_tree
+    nodes = tree.nodes
+    links = tree.links
+
+    nodes.clear()
+
+    render_node = nodes.new("CompositorNodeRLayers")
+    pixel_node = nodes.new("CompositorNodePixelate")
+    composite_node = nodes.new("CompositorNodeComposite")
+
+    pixel_node.size_x = pixel_size
+    pixel_node.size_y = pixel_size
+
+    render_node.location = (-300, 0)
+    pixel_node.location = (0, 0)
+    composite_node.location = (300, 0)
+
+    links.new(render_node.outputs["Image"], pixel_node.inputs["Image"])
+    links.new(pixel_node.outputs["Image"], composite_node.inputs["Image"])
+
+# ========================================================
+# OPERATOR: RENDER + COMPOSITE
+# --------------------------------------------------------
+# For each keyframe:
+# - Rotate object in fixed steps
+# - Render image
+# - Apply compositor pixelation
+# - Save final output to post folder
 # ========================================================
 class OBJECT_OT_render_rotations(bpy.types.Operator):
     bl_idname = "object.render_rotations"
-    bl_label = "Render Rotations (Per Keyframe)"
+    bl_label = "Render + Pixelate (Per Keyframe)"
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
@@ -46,13 +80,19 @@ class OBJECT_OT_render_rotations(bpy.types.Operator):
         scene = context.scene
         obj = context.active_object
 
-        # Validate active object
         if not obj:
             self.report({"ERROR"}, "No active object selected")
             return {"CANCELLED"}
 
+        # Ensure output folders exist
+        os.makedirs(bpy.path.abspath(props.output_path), exist_ok=True)
+        os.makedirs(bpy.path.abspath(props.post_output_path), exist_ok=True)
+
+        # Setup compositor once
+        setup_compositor(pixel_size=5)
+
         # --------------------------------------------
-        # Collect unique keyframes from animation data
+        # Collect keyframes
         # --------------------------------------------
         keyframes = set()
         if obj.animation_data and obj.animation_data.action:
@@ -61,12 +101,9 @@ class OBJECT_OT_render_rotations(bpy.types.Operator):
                     keyframes.add(int(kp.co[0]))
 
         if not keyframes:
-            self.report({"ERROR"}, "No keyframes found on active object")
+            self.report({"ERROR"}, "No keyframes found")
             return {"CANCELLED"}
 
-        # --------------------------------------------
-        # Render loop
-        # --------------------------------------------
         counter = 1
         steps = int(360 / props.step_angle)
 
@@ -74,25 +111,30 @@ class OBJECT_OT_render_rotations(bpy.types.Operator):
             scene.frame_set(frame)
 
             for i in range(steps):
-                # Apply rotation
                 obj.rotation_euler[2] = math.radians(i * props.step_angle)
 
-                # Set output path
-                scene.render.filepath = (
-                    f"{props.output_path}{props.base_name}_{counter}.png"
-                )
+                # Raw render output (temporary)
+                raw_path = f"{props.output_path}{props.base_name}_{counter}.png"
+                scene.render.filepath = raw_path
 
-                # Render still image
                 bpy.ops.render.render(write_still=True)
+
+                # Composited output
+                post_path = (
+                    f"{props.post_output_path}"
+                    f"{props.base_name}_{counter}_pixel.png"
+                )
+                scene.render.filepath = post_path
+
+                # Write compositor result
+                bpy.ops.render.render(write_still=True)
+
                 counter += 1
 
         return {"FINISHED"}
 
 # ========================================================
-# OPERATOR: CLEAN SCENE & MERGE MESHES
-# --------------------------------------------------------
-# - Deletes all Empty objects in the scene
-# - Merges all currently selected mesh objects into one
+# OPERATOR: CLEAN & MERGE
 # ========================================================
 class OBJECT_OT_clean_and_merge(bpy.types.Operator):
     bl_idname = "object.clean_and_merge"
@@ -100,18 +142,12 @@ class OBJECT_OT_clean_and_merge(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        # --------------------------------------------
-        # Remove all empties in the scene
-        # --------------------------------------------
         bpy.ops.object.select_all(action='DESELECT')
         for obj in bpy.data.objects:
             if obj.type == 'EMPTY':
                 obj.select_set(True)
         bpy.ops.object.delete()
 
-        # --------------------------------------------
-        # Merge selected mesh objects
-        # --------------------------------------------
         meshes = [o for o in context.selected_objects if o.type == 'MESH']
         if len(meshes) > 1:
             context.view_layer.objects.active = meshes[0]
@@ -120,11 +156,7 @@ class OBJECT_OT_clean_and_merge(bpy.types.Operator):
         return {"FINISHED"}
 
 # ========================================================
-# OPERATOR: CREATE ROOT OBJECT
-# --------------------------------------------------------
-# - Creates a new Empty at world origin
-# - Names it "ROOT"
-# - Parents all currently selected objects to it
+# OPERATOR: CREATE ROOT
 # ========================================================
 class OBJECT_OT_create_root(bpy.types.Operator):
     bl_idname = "object.create_root"
@@ -132,18 +164,13 @@ class OBJECT_OT_create_root(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        selected_objects = context.selected_objects
+        selected = context.selected_objects
 
-        # Create empty root
-        bpy.ops.object.empty_add(
-            type='PLAIN_AXES',
-            location=(0, 0, 0)
-        )
+        bpy.ops.object.empty_add(type='PLAIN_AXES', location=(0, 0, 0))
         root = context.active_object
         root.name = "ROOT"
 
-        # Parent previously selected objects to root
-        for obj in selected_objects:
+        for obj in selected:
             if obj != root:
                 obj.parent = root
 
@@ -151,9 +178,6 @@ class OBJECT_OT_create_root(bpy.types.Operator):
 
 # ========================================================
 # UI PANEL
-# --------------------------------------------------------
-# Single unified panel in the 3D Viewport N-panel
-# providing access to all tools in this script.
 # ========================================================
 class VIEW3D_PT_render_tools(bpy.types.Panel):
     bl_label = "Render Tools"
@@ -166,16 +190,15 @@ class VIEW3D_PT_render_tools(bpy.types.Panel):
         layout = self.layout
         props = context.scene.render_props
 
-        # Render configuration
         layout.label(text="Render Settings")
         layout.prop(props, "base_name")
         layout.prop(props, "output_path")
+        layout.prop(props, "post_output_path")
         layout.prop(props, "step_angle")
 
         layout.separator()
         layout.operator("object.render_rotations", icon="RENDER_STILL")
 
-        # Scene utilities
         layout.separator()
         layout.label(text="Scene Utilities")
         layout.operator("object.create_root", icon="EMPTY_AXIS")
@@ -183,8 +206,6 @@ class VIEW3D_PT_render_tools(bpy.types.Panel):
 
 # ========================================================
 # REGISTRATION
-# --------------------------------------------------------
-# Handles clean add-on style registration and teardown.
 # ========================================================
 classes = (
     RenderProps,
